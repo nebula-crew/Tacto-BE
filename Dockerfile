@@ -4,7 +4,7 @@
 #   docker build -t tactilecheck-api .
 #   docker run -p 7860:7860 --env-file .env tactilecheck-api      # → http://localhost:7860/docs
 #
-# 다른 가중치로 빌드:  docker build --build-arg BLOCK_WEIGHTS_FILE=v6_best.pt -t tactilecheck-api .
+# 다른 가중치로 빌드:  docker build --build-arg BLOCK_WEIGHTS_FILE=v4_best.pt --build-arg SCENE_WEIGHTS_FILE=scene_v1_best.pt -t tactilecheck-api .
 # 비밀 값(SUPABASE_URL·SUPABASE_KEY·ADMIN_TOKEN·CORS_ORIGINS)은 이미지에 넣지 않고 실행 환경(Spaces Secrets 등)에서 준다.
 
 FROM python:3.11-slim
@@ -35,8 +35,8 @@ RUN useradd -m -u 1000 user
 COPY --chown=user app ./app
 COPY --chown=user pipeline ./pipeline
 
-ARG BLOCK_WEIGHTS_FILE=v4_best.pt
-ARG SCENE_WEIGHTS_FILE=scene_v1_best.pt
+ARG BLOCK_WEIGHTS_FILE=v9_best.pt
+ARG SCENE_WEIGHTS_FILE=scene5_best.pt
 COPY --chown=user weights/${BLOCK_WEIGHTS_FILE} weights/${SCENE_WEIGHTS_FILE} ./weights/
 
 ENV BLOCK_WEIGHTS=weights/${BLOCK_WEIGHTS_FILE} \
