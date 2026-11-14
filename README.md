@@ -97,6 +97,23 @@ Dockerfile
 
 ## 로컬 실행
 
+API는 기본적으로 `weights/v8_best.pt`를 점자블록 모델로 사용한다.
+`weights/scene_v1_best.pt`가 있으면 횡단보도·차도 모델과 통합하고, 없으면
+주변 환경 판정을 보류한다. 경로는 환경변수 `BLOCK_WEIGHTS`, `SCENE_WEIGHTS`로
+지정할 수 있다. 분할 결과는 작은 블록 노이즈 제거 후 중심선과 규칙 판정에 전달된다.
+M4 판정은 아직 구현되지 않아 보류하며, 사진 또는 필요한 모델이 없을 때 전체 정상으로 판정하지 않는다.
+기존 FE의 `file` 요청 및 응답 형식은 이 API의 `close`/`wide` 계약과 다르므로 별도 연동이 필요하다.
+
+Windows PowerShell에서 v8 마스크 확인:
+
+```powershell
+python -m scripts.run_mask_extract --image "사진경로\test.jpg" --weights weights/v8_best.pt --photo close --out outputs/v8_test
+```
+
+`v8_best.pt`는 `linear`/`dot` 블록 모델이다. `--scene-weights`에는 같은 파일을
+넣지 말고 `crosswalk`/`road`를 학습한 별도 모델을 지정한다. 장면 모델이 아직
+없으면 위 명령처럼 옵션을 생략한다.
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt      # 서버 + 테스트

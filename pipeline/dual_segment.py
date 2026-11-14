@@ -180,6 +180,8 @@ class DualSegmenter:
     def __init__(self, block_weights: str | Path, scene_weights: str | Path, cfg: Optional[MergeConfig] = None):
         from ultralytics import YOLO  # requirements-ml.txt
 
+        if Path(block_weights).resolve() == Path(scene_weights).resolve():
+            raise ValueError("블록 모델과 장면 모델은 서로 다른 가중치여야 합니다. 장면 모델에는 crosswalk/road 클래스가 필요합니다.")
         for p in (block_weights, scene_weights):
             if not Path(p).is_file():
                 raise FileNotFoundError(f"가중치 파일이 없음: {p}")
