@@ -9,6 +9,10 @@
 - 골목길만 있던 사진은 라벨이 비어 배경 사진이 된다 (약 1,260장). 배경이 너무 많으면 차도를 덜 잡게 되므로
   --empty-keep 비율(기본 0.5)만 남긴다. 하늘 배경 800장과 합쳐 train의 약 13%
 - --sky 의 배경 사진(빈 라벨)은 train에만 넣는다. val은 AI Hub 그대로라 점수는 이전 모델과 비교 가능
+- --keep-alley: 골목길을 지우지 않고 5클래스 그대로 + 하늘 배경만 더한다 (실험용, scene5_sky)
+  → scene4_v1이 밤 골목 횡단보도(data11·12)를 놓친 게 '골목길 삭제' 탓인지 '하늘 배경' 탓인지 가르기 위함
+
+    python3 make_scene4.py --src ~/aihub_scene5 --sky ~/bdd_sky --out ~/aihub_scene5sky --keep-alley
 """
 
 import argparse
@@ -25,7 +29,11 @@ ap.add_argument("--src", type=Path, default=Path("~/aihub_scene5").expanduser())
 ap.add_argument("--sky", type=Path, default=None, help="bdd_sky 폴더 (images/, labels/)")
 ap.add_argument("--empty-keep", type=float, default=0.5, help="골목길만 있어 빈 라벨이 된 train 사진 중 남길 비율")
 ap.add_argument("--out", type=Path, default=Path("~/aihub_scene4").expanduser())
+ap.add_argument("--keep-alley", action="store_true", help="골목길을 지우지 않고 5클래스 그대로 둔다 (하늘 배경만 추가)")
 args = ap.parse_args()
+if args.keep_alley:
+    NAMES = ["crosswalk", "road", "alley", "sidewalk", "tactile"]
+    REMAP = {str(i): str(i) for i in range(5)}
 src, out = args.src.expanduser(), args.out.expanduser()
 
 

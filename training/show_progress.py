@@ -56,4 +56,4 @@ for i, r in list(enumerate(rows))[-args.last:]:
 b = rows[best_i]
 print()
 print(f"최고: {int(f(b, 'epoch'))}에폭 · mask mAP50 {f(b, 'metrics/mAP50(M)'):.3f} · mAP50-95 {f(b, 'metrics/mAP50-95(M)'):.3f}"
-      f"  {D}(5클래스 평균. 클래스별 점수는 학습이 끝나면 로그 맨 끝에 나옴){R}")
+      f"  {D}(전체 클래스 평균. 클래스별 점수는 학습이 끝나면 로그 맨 끝에 나옴){R}")
