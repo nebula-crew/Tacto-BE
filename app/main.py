@@ -58,8 +58,8 @@ state: dict = {}
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # 두 모델 통합 (블록 + 장면). 둘 다 있으면 DualSegmenter, 아니면 예전 방식(모델 하나)
-    block = Path(os.getenv("BLOCK_WEIGHTS", os.getenv("WEIGHTS_PATH", "weights/v8_best.pt")))
-    scene = Path(os.getenv("SCENE_WEIGHTS", "weights/scene_v1_best.pt"))
+    block = Path(os.getenv("BLOCK_WEIGHTS", os.getenv("WEIGHTS_PATH", "weights/v9_best.pt")))
+    scene = Path(os.getenv("SCENE_WEIGHTS", "weights/scene5_best.pt"))
     if block.exists() and scene.exists():
         from pipeline.dual_segment import DualSegmenter
 

@@ -192,6 +192,7 @@ class DualSegmenter:
         self.scene_map = class_mapping(self.scene_model.names, {MaskClass.CROSSWALK, MaskClass.ROAD},
                                        skip=SCENE_EXTRA_NAMES)
         self.tactile_ids = frozenset(i for i, n in _names(self.scene_model.names) if n == TACTILE_NAME)
+        self.available_classes = sorted({cls.name.lower() for cls in (*self.block_map.values(), *self.scene_map.values())})
 
     @property
     def dual_detection(self) -> bool:

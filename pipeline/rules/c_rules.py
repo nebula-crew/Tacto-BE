@@ -296,7 +296,7 @@ def check_direction_and_connection(
 
     # 2. 연결: 블록이 횡단보도 입구에 닿는가
     touching = bool((blocks & cw_near).any())
-    if touching and not has_c2:
+    if touching:
         c5 = _check_c5(wide_label, blocks, cw_near, cfg)
         if c5:
             return findings + c5
@@ -393,9 +393,7 @@ def check_c4(wide: PhotoAnalysis, cfg: Optional[C4Config] = None) -> list[Findin
         return []
 
     findings: list[Finding] = []
-    checked: list[str] = []
     if ent and ent.block is not None and ent.confidence >= cfg.min_conf:
-        checked.append("진입부 점형")
         if ent.block == MaskClass.LINEAR:
             findings.append(Finding(
                 code="C4", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
@@ -403,8 +401,13 @@ def check_c4(wide: PhotoAnalysis, cfg: Optional[C4Config] = None) -> list[Findin
                 location=ent.center, clause=CLAUSES["C4"], suggestion=SUGGESTIONS["C4"],
                 confidence=round(0.7 * ent.confidence, 2),
             ))
+        elif ent.block == MaskClass.DOT:
+            findings.append(Finding(code="C4", verdict=Verdict.NORMAL, photo=PhotoKind.WIDE,
+                                    message="횡단보도 진입부에 점형 블록이 확인됨", location=ent.center, confidence=round(0.7 * ent.confidence, 2)))
+    else:
+        findings.append(Finding(code="C4", verdict=Verdict.HOLD, photo=PhotoKind.WIDE,
+                                message="진입부 점형 블록 유무를 확인할 수 없습니다"))
     if app and app.block == MaskClass.LINEAR and app.ridge_angle_deg is not None and app.confidence >= cfg.min_conf:
-        checked.append("진행 방향")
         dev = angle_diff(app.ridge_angle_deg, rect.crosswalk_axis_deg)
         if dev > cfg.max_ridge_dev_deg:
             findings.append(Finding(
@@ -413,14 +416,10 @@ def check_c4(wide: PhotoAnalysis, cfg: Optional[C4Config] = None) -> list[Findin
                 location=app.center, clause=CLAUSES["C4"], suggestion=SUGGESTIONS["C4"],
                 confidence=round(0.7 * app.confidence, 2),
             ))
-    if findings:
-        return findings
-    if checked:
-        return [Finding(
-            code="C4", verdict=Verdict.NORMAL, photo=PhotoKind.WIDE,
-            message=f"횡단보도 진입부 확인 정상 ({', '.join(checked)})", confidence=0.6,
-        )]
-    return [Finding(
-        code="H2", verdict=Verdict.HOLD, photo=PhotoKind.WIDE,
-        message="진입부 블록 무늬가 작거나 흐려 진입 방향(C4) 판정 보류. 진입부가 더 크게 나오게 찍어 주세요",
-    )]
+        else:
+            findings.append(Finding(code="C4", verdict=Verdict.NORMAL, photo=PhotoKind.WIDE,
+                                    message="진입부 선형 돌출선 방향이 횡단보도 방향과 일치함", location=app.center, confidence=round(0.7 * app.confidence, 2)))
+    else:
+        findings.append(Finding(code="H2", verdict=Verdict.HOLD, photo=PhotoKind.WIDE,
+                                message="진입부 선형 돌출선 방향을 확인할 수 없습니다"))
+    return findings

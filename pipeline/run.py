@@ -43,8 +43,17 @@ def run_photo(segmenter, image_bgr: np.ndarray, inspection_id: Optional[str] = N
     분석은 넓은 사진 기준(시점 보정·진입부 ROI 포함)으로 한 번만 하고 M·C 계열이 같이 쓴다.
     """
     label, seg = segmenter.predict(image_bgr, PhotoKind.WIDE)
+    label, _ = refine_mask(label)
+    seg.class_area_px = summarize(label, PhotoKind.WIDE).class_area_px
     analysis = analyze_label(label, PhotoKind.WIDE, image_bgr, seg)
     result = judge_photo(analysis, label)
+    classes = getattr(segmenter, "available_classes", None)
+    if classes is not None and not {"crosswalk", "road"}.issubset(classes):
+        result.findings.append(Finding(code="H3", verdict=Verdict.HOLD, photo=PhotoKind.WIDE,
+                                       message="횡단보도·차도 모델이 없어 주변 환경 판정을 보류합니다."))
+        result.scope["C"] = "보류 (횡단보도·차도 모델 없음)"
+        if result.overall != Verdict.SUSPECTED:
+            result.overall = Verdict.HOLD
     result.inspection_id = inspection_id
     return result
 
@@ -71,12 +80,7 @@ def run_inspection(
     has_scene_model = {"crosswalk", "road"}.issubset(classes)
     result = judge(close, wide if has_scene_model else None, wide_label if has_scene_model else None)
     result.wide = wide
-    # M4 is not implemented yet; missing scene coverage must never produce an
-    # overall normal result. Preserve definite suspected findings.
-    if close is not None:
-        result.findings.append(Finding(code="M4", verdict=Verdict.HOLD, photo=PhotoKind.CLOSE,
-                                       message="선형 블록 끊김 검사는 아직 지원되지 않아 판정을 보류합니다."))
-    else:
+    if close is None:
         result.findings.append(Finding(code="M3", verdict=Verdict.HOLD, photo=PhotoKind.CLOSE,
                                        message="근접 사진이 없어 블록 형태 판정을 보류합니다."))
     if wide is None or not has_scene_model:

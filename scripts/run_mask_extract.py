@@ -2,7 +2,7 @@
 
 프로젝트 루트에서 실행:
     python -m scripts.run_mask_extract --image "datasets/test/test.jpg" \
-        --weights "weights/v8_best.pt" --photo close
+        --weights "weights/v9_best.pt" --photo close
 """
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def export_detections(image, detections, out_dir):
 def main() -> None:
     parser = argparse.ArgumentParser(description="TactileCheck YOLO 마스크 추출")
     parser.add_argument("--image", required=True, help="입력 사진 경로")
-    parser.add_argument("--weights", default="weights/v8_best.pt", help="블록 모델 경로")
+    parser.add_argument("--weights", default="weights/v9_best.pt", help="블록 모델 경로")
     parser.add_argument("--scene-weights", help="선택: 횡단보도·차도 모델 경로")
     parser.add_argument("--photo", choices=["close", "wide"], default="close")
     parser.add_argument("--out", default="outputs/masks", help="출력 폴더")
@@ -83,7 +83,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.scene_weights and Path(args.weights).resolve() == Path(args.scene_weights).resolve():
         parser.error("--scene-weights에는 별도의 횡단보도·차도 모델이 필요합니다. "
-                     "v8_best.pt는 linear/dot 블록 모델이므로 단독 실행하려면 --scene-weights를 빼세요.")
+                     "점형·선형 블록만 추출하려면 --scene-weights를 빼세요.")
 
     image_path = Path(args.image)
     if not image_path.is_file():
@@ -93,11 +93,11 @@ def main() -> None:
     out_dir = Path(args.out)
     if args.scene_weights:
         segmenter = DualSegmenter(args.weights, args.scene_weights, MergeConfig(block_conf=args.conf, scene_conf=args.conf, imgsz=args.imgsz))
-        blocks = segmenter._run(segmenter.block_model, segmenter.block_map, image, args.conf)
-        scene = segmenter._run(segmenter.scene_model, segmenter.scene_map, image, args.conf)
+        blocks, _ = segmenter._run(segmenter.block_model, segmenter.block_map, image, args.conf)
+        scene, tactile = segmenter._run(segmenter.scene_model, segmenter.scene_map, image, args.conf, segmenter.tactile_ids)
         export_detections(image, blocks, out_dir / "block")
         export_detections(image, scene, out_dir / "scene")
-        label, info = merge_detections(image, scene, blocks, PhotoKind(args.photo), segmenter.cfg)
+        label, info = merge_detections(image, scene, blocks, PhotoKind(args.photo), segmenter.cfg, tactile)
     else:
         segmenter = Segmenter(args.weights, conf=args.conf, imgsz=args.imgsz)
         label, info = segmenter.predict(image, PhotoKind(args.photo))

@@ -54,7 +54,7 @@ def check_h2(wide: PhotoAnalysis) -> list[Finding]:
     if r is not None and r.ok:
         return []
     return [Finding(code="H2", verdict=Verdict.HOLD, photo=PhotoKind.WIDE,
-                    message="시점 보정 실패로 횡단보도 진입 방향(C4) 판정 보류"
+                    message="시점 보정 실패로 돌출선 방향(C4)과 선형 경로 방향(C6) 판정 보류"
                             + (f" ({r.reason})" if r is not None and r.reason else ""),
                     confidence=0.0)]
 

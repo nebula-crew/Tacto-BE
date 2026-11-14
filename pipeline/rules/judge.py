@@ -95,14 +95,12 @@ def judge_photo(
     m_ok, why = hold.m_gate(photo, label, cfg)
     if m_ok:
         m = m_rules.check_m(photo, label)
-        if c_on and m and all(f.verdict == Verdict.HOLD for f in m):
+        if c_on and m and all(f.code == "M3" and f.verdict == Verdict.HOLD and f.location is None for f in m):
             m = []  # 횡단보도 사진에 꺾임·분기점이 없으면 M은 대상 없음 (보류로 세지 않음)
             scope["M"] = "대상 없음 (꺾임·분기점이 보이지 않음)"
         else:
             scope["M"] = "판정"
         findings += m
-    elif c_on:
-        scope["M"] = f"건너뜀 ({why})"
     else:
         findings += hold.h4_from_gate(why)
         scope["M"] = f"보류 ({why})"
