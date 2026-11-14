@@ -1,8 +1,8 @@
-"""v4_best.pt로 한 장의 사진 마스크를 저장하는 실험용 스크립트.
+"""점자블록 모델과 선택적 장면 모델의 마스크를 저장하는 스크립트.
 
 프로젝트 루트에서 실행:
-    python run_mask_extract.py --image "tests/images/sample.jpg" \
-        --weights "weights/v4_best.pt" --photo close
+    python -m scripts.run_mask_extract --image "datasets/test/test.jpg" \
+        --weights "weights/v9_best.pt" --photo close
 """
 from __future__ import annotations
 
@@ -13,8 +13,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from pipeline.mask_refine import refine_mask
+from pipeline.dual_segment import DualSegmenter, MergeConfig, merge_detections
 from pipeline.schema import MaskClass, PhotoKind
-from pipeline.segment import Segmenter
+from pipeline.segment import Segmenter, summarize
 
 
 CLASS_COLORS = {
@@ -59,32 +61,58 @@ def export_masks(image: np.ndarray, label: np.ndarray, out_dir: Path) -> None:
     save_png(out_dir / "overlay.png", overlay)
 
 
+def export_detections(image, detections, out_dir):
+    label = np.zeros(image.shape[:2], dtype=np.uint8)
+    for mask, cls, score in sorted(detections, key=lambda item: item[2]):
+        label[mask] = int(cls)
+    export_masks(image, label, out_dir)
+    details = [{"class": cls.name.lower(), "confidence": float(score),
+                "area_px": int(mask.sum())} for mask, cls, score in detections]
+    (out_dir / "detections.json").write_text(json.dumps(details, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="TactileCheck YOLO v4 마스크 추출")
+    parser = argparse.ArgumentParser(description="TactileCheck YOLO 마스크 추출")
     parser.add_argument("--image", required=True, help="입력 사진 경로")
-    parser.add_argument("--weights", default="weights/v4_best.pt", help="모델 경로")
+    parser.add_argument("--weights", default="weights/v9_best.pt", help="블록 모델 경로")
+    parser.add_argument("--scene-weights", help="선택: 횡단보도·차도 모델 경로")
     parser.add_argument("--photo", choices=["close", "wide"], default="close")
     parser.add_argument("--out", default="outputs/masks", help="출력 폴더")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--imgsz", type=int, default=640)
     args = parser.parse_args()
+    if args.scene_weights and Path(args.weights).resolve() == Path(args.scene_weights).resolve():
+        parser.error("--scene-weights에는 별도의 횡단보도·차도 모델이 필요합니다. "
+                     "점형·선형 블록만 추출하려면 --scene-weights를 빼세요.")
 
     image_path = Path(args.image)
     if not image_path.is_file():
         raise FileNotFoundError(f"입력 사진이 없습니다: {image_path}")
     image = read_image(image_path)
 
-    segmenter = Segmenter(args.weights, conf=args.conf, imgsz=args.imgsz)
-    label, info = segmenter.predict(image, PhotoKind(args.photo))
-
     out_dir = Path(args.out)
+    if args.scene_weights:
+        segmenter = DualSegmenter(args.weights, args.scene_weights, MergeConfig(block_conf=args.conf, scene_conf=args.conf, imgsz=args.imgsz))
+        blocks, _ = segmenter._run(segmenter.block_model, segmenter.block_map, image, args.conf)
+        scene, tactile = segmenter._run(segmenter.scene_model, segmenter.scene_map, image, args.conf, segmenter.tactile_ids)
+        export_detections(image, blocks, out_dir / "block")
+        export_detections(image, scene, out_dir / "scene")
+        label, info = merge_detections(image, scene, blocks, PhotoKind(args.photo), segmenter.cfg, tactile)
+    else:
+        segmenter = Segmenter(args.weights, conf=args.conf, imgsz=args.imgsz)
+        label, info = segmenter.predict(image, PhotoKind(args.photo))
     export_masks(image, label, out_dir)
+    refined, refine_info = refine_mask(label)
+    export_masks(image, refined, out_dir / "refined")
     info.mask_path = str(out_dir / "label_mask.png")
     metadata = {
         "segmentation": info.model_dump(mode="json"),
         "available_classes": segmenter.available_classes,
         "weights": args.weights,
         "input_image": str(image_path),
+        "refined_class_area_px": summarize(refined, PhotoKind(args.photo)).class_area_px,
+        "refinement": refine_info,
+        "refined_mask_path": str(out_dir / "refined" / "label_mask.png"),
         "note": "미지원 클래스는 면적이 0이어도 미검출과 구별해야 합니다.",
     }
     (out_dir / "segmentation.json").write_text(

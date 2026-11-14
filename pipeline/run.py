@@ -11,8 +11,10 @@ from typing import Optional
 import numpy as np
 
 from .rectify import analyze_rois, rectify_by_crosswalk
+from .mask_refine import refine_mask
 from .rules import judge, judge_photo
-from .schema import InspectionResult, PhotoAnalysis, PhotoKind
+from .schema import Finding, InspectionResult, PhotoAnalysis, PhotoKind, Verdict
+
 from .segment import Segmenter, summarize
 from .skeleton import SkeletonConfig, extract_path
 
@@ -41,8 +43,17 @@ def run_photo(segmenter, image_bgr: np.ndarray, inspection_id: Optional[str] = N
     분석은 넓은 사진 기준(시점 보정·진입부 ROI 포함)으로 한 번만 하고 M·C 계열이 같이 쓴다.
     """
     label, seg = segmenter.predict(image_bgr, PhotoKind.WIDE)
+    label, _ = refine_mask(label)
+    seg.class_area_px = summarize(label, PhotoKind.WIDE).class_area_px
     analysis = analyze_label(label, PhotoKind.WIDE, image_bgr, seg)
     result = judge_photo(analysis, label)
+    classes = getattr(segmenter, "available_classes", None)
+    if classes is not None and not {"crosswalk", "road"}.issubset(classes):
+        result.findings.append(Finding(code="H3", verdict=Verdict.HOLD, photo=PhotoKind.WIDE,
+                                       message="횡단보도·차도 모델이 없어 주변 환경 판정을 보류합니다."))
+        result.scope["C"] = "보류 (횡단보도·차도 모델 없음)"
+        if result.overall != Verdict.SUSPECTED:
+            result.overall = Verdict.HOLD
     result.inspection_id = inspection_id
     return result
 
@@ -57,10 +68,26 @@ def run_inspection(
     close = wide = wide_label = None
     if close_bgr is not None:
         label, seg = segmenter.predict(close_bgr, PhotoKind.CLOSE)
+        label, _ = refine_mask(label)
+        seg.class_area_px = summarize(label, PhotoKind.CLOSE).class_area_px
         close = analyze_label(label, PhotoKind.CLOSE, close_bgr, seg)
     if wide_bgr is not None:
         wide_label, seg = segmenter.predict(wide_bgr, PhotoKind.WIDE)  # 줄무늬 필터는 DualSegmenter 안에서
+        wide_label, _ = refine_mask(wide_label)
+        seg.class_area_px = summarize(wide_label, PhotoKind.WIDE).class_area_px
         wide = analyze_label(wide_label, PhotoKind.WIDE, wide_bgr, seg)
-    result = judge(close, wide, wide_label)
+    classes = set(getattr(segmenter, "available_classes", ()))
+    has_scene_model = {"crosswalk", "road"}.issubset(classes)
+    result = judge(close, wide if has_scene_model else None, wide_label if has_scene_model else None)
+    result.wide = wide
+    if close is None:
+        result.findings.append(Finding(code="M3", verdict=Verdict.HOLD, photo=PhotoKind.CLOSE,
+                                       message="근접 사진이 없어 블록 형태 판정을 보류합니다."))
+    if wide is None or not has_scene_model:
+        result.findings.append(Finding(code="H3", verdict=Verdict.HOLD, photo=PhotoKind.WIDE,
+                                       message="넓은 사진과 횡단보도·차도 모델이 필요해 주변 환경 판정을 보류합니다."))
+    result.overall = (Verdict.SUSPECTED if any(f.verdict == Verdict.SUSPECTED for f in result.findings)
+                      else Verdict.HOLD if any(f.verdict == Verdict.HOLD for f in result.findings)
+                      else result.overall)
     result.inspection_id = inspection_id
     return result

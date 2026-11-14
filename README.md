@@ -97,6 +97,31 @@ Dockerfile
 
 ## 로컬 실행
 
+API는 기본적으로 `weights/v9_best.pt`를 점자블록 모델로 사용한다.
+`weights/scene5_best.pt`가 있으면 횡단보도·차도 모델과 통합하고, 없으면
+주변 환경 판정을 보류한다. 경로는 환경변수 `BLOCK_WEIGHTS`, `SCENE_WEIGHTS`로
+지정할 수 있다. 분할 결과는 작은 블록 노이즈 제거 후 중심선과 규칙 판정에 전달된다.
+M4는 선형 경로 끝점 기반 단절 후보를 판단하며 사진 경계 등 불확실한 후보는 보류한다.
+실제 사진에서 모델과 규칙의 정확도를 추가 검증해야 한다.
+
+Windows PowerShell에서 두 모델 마스크 확인:
+
+```powershell
+python -m scripts.run_mask_extract --image "사진경로\test.jpg" --weights weights/v9_best.pt --scene-weights weights/scene5_best.pt --out outputs/dual_test
+```
+
+`v9_best.pt`는 `linear`/`dot` 블록 모델이다. `--scene-weights`에는 같은 파일을
+넣지 말고 `crosswalk`/`road`를 학습한 별도 모델을 지정한다. 장면 모델이 아직
+없으면 위 명령처럼 옵션을 생략한다.
+
+테스트 폴더의 사진을 일괄 분석하고 중심선을 확인하려면 다음 명령을 실행한 뒤
+`outputs/review_v9_scene5/index.html`을 브라우저에서 연다. 원본 크기 중심선·노드
+오버레이, 모델별 마스크, 통합 마스크 및 판정 JSON을 사진마다 저장한다.
+
+```powershell
+python -m scripts.review_photos
+```
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt      # 서버 + 테스트

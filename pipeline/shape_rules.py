@@ -186,7 +186,24 @@ def find_m3_candidates(
                     0 <= x < path.width and 0 <= y < path.height and
                     label[y, x] == MaskClass.DOT)
         d = 0.0 if dot_node else _dot_distance(label, node.pt, cfg.dot_ambiguous_px)
-        if dot_node or (d is not None and d <= cfg.dot_near_px):
+        # A wide linear region cut by the image border can skeletonize into
+        # two arms ending on that same border. It is not reliable evidence of
+        # a real branch; keep the candidate but request a wider photo.
+        boundary_counts = [0, 0, 0, 0]
+        margin = max(2.0, min(path.width, path.height) * 0.02)
+        if kind == "branch":
+            for edge in related:
+                other_id = edge.v if edge.u == node.id else edge.u
+                other = path.node(other_id)
+                if other.type != NodeType.END:
+                    continue
+                for i, near in enumerate((other.pt.x <= margin, other.pt.x >= path.width - 1 - margin,
+                                          other.pt.y <= margin, other.pt.y >= path.height - 1 - margin)):
+                    boundary_counts[i] += int(near)
+        if max(boundary_counts) >= 2 and not dot_node:
+            verdict = Verdict.HOLD
+            reason = "사진 경계에서 선형 영역이 잘려 분기 여부를 확인할 수 없음"
+        elif dot_node or (d is not None and d <= cfg.dot_near_px):
             verdict = Verdict.NORMAL
             reason = f"{kind} 구조 후보 주변에 점형 블록이 확인됨"
         elif d is not None:

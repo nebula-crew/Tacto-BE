@@ -51,6 +51,7 @@ class SkeletonConfig:
     corridor_turn_deg: float = 70.0  # 보간된 넓은 띠에서는 가짜 꺾임 후보를 더 엄격하게
     one_dot_corridor_eigen_ratio: float = 5.0  # 한쪽만 점형에 닿는 직선 띠에 한해 강화
     one_dot_corridor_solidity: float = 0.94  # ㄱ/T자나 울퉁불퉁한 영역의 오보정 방지
+    clipped_corridor_eigen_ratio: float = 1.8  # 화면에 잘린 볼록한 띠만 완화
 
 
 def block_mask(label: np.ndarray) -> np.ndarray:
@@ -115,7 +116,8 @@ def extract_path(
         dist_map = cv2.distanceTransform(linear, cv2.DIST_L2, 3)
         radius_values = dist_map[skel]
         effective_spur_px = max(20.0, float(np.median(radius_values)) * 1.6) if radius_values.size else 20.0
-    nodes, edges = _prune_spurs(nodes, edges, effective_spur_px, protected_ends)
+    nodes, edges = _prune_spurs(nodes, edges, effective_spur_px, protected_ends,
+                               dist_map if cfg.spur_px <= 0 else None)
     nodes, edges = _merge_degree2(nodes, edges)
     nodes, edges, turn_ids = _split_turns(nodes, edges, cfg, line_components, refined_components)
     path = _to_schema(label, photo, w, h, nodes, edges, turn_ids,
@@ -161,6 +163,7 @@ def _refine_simple_corridors(
             continue
         # dilated_dot 결과는 class ID를 잃었으므로 labels를 함께 팽창시켜 연결 ID 보존
         n_touch = 0
+        contact_centers = []
         for di in range(1, n_dot):
             dilated_region = cv2.dilate(
                 (dot_labels == di).astype(np.uint8),
@@ -168,6 +171,8 @@ def _refine_simple_corridors(
             )
             if np.any((dilated_region != 0) & touching):
                 n_touch += 1
+                cy, cx = np.nonzero((dilated_region != 0) & touching)
+                contact_centers.append(np.array([cx.mean(), cy.mean()]))
         if n_touch < 1:
             continue
         contours, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -183,17 +188,47 @@ def _refine_simple_corridors(
         coords = np.column_stack([xs, ys]).astype(np.float64)
         origin = coords.mean(axis=0)
         eigvals, eigvecs = np.linalg.eigh(np.cov(coords.T))
+        clipped = bool(np.any(region[0, :]) or np.any(region[-1, :])
+                       or np.any(region[:, 0]) or np.any(region[:, -1]))
         required_ratio = (cfg.one_dot_corridor_eigen_ratio if n_touch == 1
                           else cfg.corridor_min_eigen_ratio)
-        if eigvals[0] <= 0 or eigvals[1] / eigvals[0] < required_ratio:
-            continue
+        if clipped and n_touch == 1:
+            required_ratio = cfg.clipped_corridor_eigen_ratio
         axis = eigvecs[:, 1]
+        # A short, wide strip can have its largest PCA axis across the route.
+        # Use the observed dot contact and a single image-border contact instead.
+        border = np.zeros_like(region)
+        border[0, :] = region[0, :]
+        border[-1, :] = region[-1, :]
+        border[:, 0] = region[:, 0]
+        border[:, -1] = region[:, -1]
+        contact_axis = False
+        if n_touch == 2:
+            a, b = contact_centers
+            va, vb = a - origin, b - origin
+            denom = np.linalg.norm(va) * np.linalg.norm(vb)
+            # Opposite contacts define travel direction, even when width > length.
+            # Adjacent contacts and concave L/T components retain their skeleton.
+            if denom > 0 and np.dot(va, vb) / denom < -0.7 and np.linalg.norm(b - a) > 35:
+                axis = (b - a) / np.linalg.norm(b - a)
+                contact_axis = True
+        if clipped and n_touch == 1:
+            by, bx = np.nonzero(border)
+            ty, tx = np.nonzero(touching)
+            sides = sum(bool(np.any(s)) for s in (region[0], region[-1], region[:, 0], region[:, -1]))
+            vector = np.array([bx.mean() - tx.mean(), by.mean() - ty.mean()])
+            if sides == 1 and np.linalg.norm(vector) > 35:
+                axis = vector / np.linalg.norm(vector)
+                contact_axis = True
+        if not contact_axis and (eigvals[0] <= 0 or eigvals[1] / eigvals[0] < required_ratio):
+            continue
         perp = np.array([-axis[1], axis[0]])
         delta = coords - origin
         along = delta @ axis
         sideways = delta @ perp
         # 주 진행축 직교 절편의 평균을 이어 중심선 근사 (20px 간격)
-        step_px = 20.0
+        step_px = (min(20.0, max(4.0, float(np.ptp(along)) / 12.0))
+                   if contact_axis else 20.0)
         lo = float(along.min())
         bin_ids = np.floor((along - lo) / step_px).astype(np.int32)
         counts = np.bincount(bin_ids)
@@ -206,7 +241,7 @@ def _refine_simple_corridors(
         if len(lateral) >= 5:
             # 좌우 경계의 작은 울퉁불퉁함으로 인한 흔들림 완화
             lateral = cv2.GaussianBlur(lateral.reshape(-1, 1).astype(np.float32), (1, 11), sigmaX=0).ravel()
-        longitudinal = lo + (bins.astype(float) + 0.5) * step_px
+        longitudinal = np.bincount(bin_ids, weights=along)[bins] / counts[bins]
         centers = origin + longitudinal[:, None] * axis + lateral[:, None] * perp
         centers = np.rint(centers).astype(np.int32)
         centerline = np.zeros_like(out)
@@ -225,6 +260,7 @@ def _refine_simple_corridors(
         # 경계 근방에서는 평균 중심선이 마스크 밖/점형 안으로 나갈 수 있다.
         # 실제 선형 영역에 속하는 픽셀만 남겨 접점·노드 클래스 불일치를 방지한다.
         centerline[region == 0] = 0
+        centerline = skeletonize(centerline.astype(bool)).astype(np.uint8)
         # 해당 선형 연결 성분의 원래 medial-axis 가짜 가지를 제거하고 교체
         out[region != 0] = 0
         out[centerline != 0] = 1
@@ -495,14 +531,18 @@ def _length(path: list[Pixel]) -> float:
     return sum(math.dist(a, b) for a, b in zip(path, path[1:]))
 
 
-def _prune_spurs(nodes: Nodes, edges: Edges, spur_px: float, protected_ends: Optional[set[int]] = None) -> tuple[Nodes, Edges]:
+def _prune_spurs(nodes: Nodes, edges: Edges, spur_px: float, protected_ends: Optional[set[int]] = None,
+                 radius_map: Optional[np.ndarray] = None) -> tuple[Nodes, Edges]:
     protected_ends = protected_ends or set()
     changed = True
     while changed:
         changed = False
         for eid, (u, v, path) in list(edges.items()):
             du, dv = _degree(edges, u), _degree(edges, v)
-            if u == v or _length(path) >= spur_px:
+            local_limit = spur_px
+            if radius_map is not None and path:
+                local_limit = max(20.0, float(np.median([radius_map[y, x] for y, x in path])) * 1.6)
+            if u == v or _length(path) >= local_limit:
                 continue
             if (du == 1 and dv >= 3) or (dv == 1 and du >= 3):
                 leaf = u if du == 1 else v

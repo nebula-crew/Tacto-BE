@@ -180,6 +180,8 @@ class DualSegmenter:
     def __init__(self, block_weights: str | Path, scene_weights: str | Path, cfg: Optional[MergeConfig] = None):
         from ultralytics import YOLO  # requirements-ml.txt
 
+        if Path(block_weights).resolve() == Path(scene_weights).resolve():
+            raise ValueError("블록 모델과 장면 모델은 서로 다른 가중치여야 합니다. 장면 모델에는 crosswalk/road 클래스가 필요합니다.")
         for p in (block_weights, scene_weights):
             if not Path(p).is_file():
                 raise FileNotFoundError(f"가중치 파일이 없음: {p}")
@@ -190,6 +192,7 @@ class DualSegmenter:
         self.scene_map = class_mapping(self.scene_model.names, {MaskClass.CROSSWALK, MaskClass.ROAD},
                                        skip=SCENE_EXTRA_NAMES)
         self.tactile_ids = frozenset(i for i, n in _names(self.scene_model.names) if n == TACTILE_NAME)
+        self.available_classes = sorted({cls.name.lower() for cls in (*self.block_map.values(), *self.scene_map.values())})
 
     @property
     def dual_detection(self) -> bool:
