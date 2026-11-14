@@ -1,7 +1,12 @@
+import math
+
+import cv2
+import numpy as np
+
 from pipeline import synth
-from pipeline.rules import judge
+from pipeline.rules import c_rules, judge
 from pipeline.run import analyze_label
-from pipeline.schema import PhotoKind, Verdict
+from pipeline.schema import MaskClass, PhotoKind, Verdict
 
 
 def _m3(result):
@@ -253,3 +258,29 @@ def test_every_suspected_finding_has_clause():
                 assert f.clause, f.code
                 seen.add(f.code)
     assert {"M3", "C1", "C2", "C3", "C4"} <= seen
+
+
+def _gap_scene(path_width: int, gap: int):
+    """횡단보도(위) ─ 빈칸 gap px ─ 점형 ─ 선형 경로. 빈칸은 연석·보도 끝 여유."""
+    lab = np.zeros((640, 640), np.uint8)
+    lab[:200, :] = int(MaskClass.ROAD)
+    lab[:200, 240:400] = int(MaskClass.CROSSWALK)
+    top = 200 + gap
+    cv2.line(lab, (320, 620), (320, top + 40), int(MaskClass.LINEAR), thickness=path_width)
+    lab[top:top + 60, 260:380] = int(MaskClass.DOT)
+    return lab
+
+
+def test_entrance_gap_scales_with_block_size():
+    """가까이 찍어 블록이 크게 나오면 연석 폭만큼의 빈칸은 '입구에 닿음'으로 본다. 작게 찍힌 블록은 예전 기준(대각선 3%)."""
+    for width, expect in ((80, Verdict.NORMAL), (30, Verdict.SUSPECTED)):
+        lab = _gap_scene(width, gap=40)  # 대각선 3% ≈ 27px < 40px
+        photo = analyze_label(lab, PhotoKind.WIDE)
+        c1 = [f for f in c_rules.check_direction_and_connection(photo, lab) if f.code == "C1"]
+        assert c1 and c1[0].verdict == expect, (width, c1)
+
+
+def test_entrance_gap_px_is_capped():
+    lab = _gap_scene(200, gap=10)
+    diag = math.hypot(640, 640)
+    assert c_rules.entrance_gap_px(lab, 0.03, 0.6, 0.06) <= round(0.06 * diag)

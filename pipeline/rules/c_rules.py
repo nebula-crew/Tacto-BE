@@ -37,6 +37,10 @@ class ContextConfig:
 
     ray_len: float = 0.5  # 연장선 최대 길이
     entrance_gap: float = 0.03  # 블록이 횡단보도에서 이만큼 안에 있으면 '입구에 닿음'
+    # 가까이 찍은 사진은 연석·보도 끝 여유(점형은 차도 경계에서 약 0.3m 안쪽에 둠)가 대각선의 3%보다 크게 찍힌다.
+    # 그래서 블록 줄 폭(사진 속 블록 크기)에 비례한 거리도 허용한다. 단 대각선의 entrance_gap_max까지만.
+    entrance_block_factor: float = 0.6
+    entrance_gap_max: float = 0.06
     junction_ray_len: float = 0.08  # 꺾임·분기점에서 직진 연장선 길이 (연석 바로 앞에서 꺾인 경우)
     arrive_len: float = 0.15  # 끝점·분기점에서 이 거리 안에 횡단보도(부풀리지 않은 원래 영역)가 있으면 '들어감'
     max_linear_share: float = 0.1  # 입구 블록 덩어리 중 선형 비율이 이보다 낮으면 선형 유도 없음 (C5)
@@ -52,6 +56,16 @@ class RayHit:
     direction: tuple[float, float]
     hit: Optional[MaskClass]  # CROSSWALK / ROAD / None
     hit_pt: Optional[tuple[float, float]]
+
+
+def entrance_gap_px(label: np.ndarray, ratio: float, block_factor: float, max_ratio: float) -> int:
+    """'입구에 닿음' 허용 거리(px) = max(대각선×ratio, 블록 줄 폭×block_factor), 최대 대각선×max_ratio."""
+    from .hold import block_width_px  # hold가 c_rules를 쓰지 않으므로 순환 import 아님
+
+    h, w = label.shape[:2]
+    diag = math.hypot(w, h)
+    gap = max(ratio * diag, min(block_factor * block_width_px(label), max_ratio * diag))
+    return max(1, round(gap))
 
 
 def _masks(label: np.ndarray, gap_px: int):
@@ -101,7 +115,7 @@ def cast_rays(wide: PhotoAnalysis, label: np.ndarray, cfg: ContextConfig) -> lis
     """
     h, w = label.shape[:2]
     diag = math.hypot(w, h)
-    gap = max(1, round(cfg.entrance_gap * diag))
+    gap = entrance_gap_px(label, cfg.entrance_gap, cfg.entrance_block_factor, cfg.entrance_gap_max)
     _, cw_near, road, _ = _masks(label, gap)
 
     out = []
@@ -270,7 +284,7 @@ def check_direction_and_connection(
         return []
     cfg = cfg or ContextConfig()
     h, w = wide_label.shape[:2]
-    gap = max(1, round(cfg.entrance_gap * math.hypot(w, h)))
+    gap = entrance_gap_px(wide_label, cfg.entrance_gap, cfg.entrance_block_factor, cfg.entrance_gap_max)
     cw, cw_near, _, blocks = _masks(wide_label, gap)
     if not blocks.any():
         return []
@@ -285,7 +299,7 @@ def check_direction_and_connection(
             seen.add(r.node_id)
             findings.append(Finding(
                 code="C2", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-                message="블록이 횡단보도가 없는 차도 쪽으로 향함 (차도 직진 위험)",
+                message="블록이 횡단보도가 아닌 차도 쪽으로 향함 (차도 직진 위험)",
                 location=Point(x=r.tip[0], y=r.tip[1]),
                 clause=CLAUSES["C2"], suggestion=SUGGESTIONS["C2"], confidence=0.7,
             ))
@@ -342,6 +356,8 @@ class C4Config:
     min_conf: float = 0.5
     # 시점 보정 실패 시 라벨로 진입부 점형 확인
     entrance_gap: float = 0.03  # 사진 대각선 대비 (ContextConfig.entrance_gap과 같음)
+    entrance_block_factor: float = 0.6  # ContextConfig와 같음
+    entrance_gap_max: float = 0.06
     min_entrance_px: float = 0.002  # 진입부 블록이 사진 면적의 이만큼은 있어야 판단
     max_dot_share: float = 0.15  # 진입부 블록 중 점형 비율이 이보다 낮으면 점형 누락
 
@@ -357,7 +373,7 @@ def check_c4_from_label(wide: PhotoAnalysis, label: Optional[np.ndarray],
         return []
     cfg = cfg or C4Config()
     h, w = label.shape[:2]
-    gap = max(1, round(cfg.entrance_gap * math.hypot(w, h)))
+    gap = entrance_gap_px(label, cfg.entrance_gap, cfg.entrance_block_factor, cfg.entrance_gap_max)
     cw = (label == MaskClass.CROSSWALK).astype(np.uint8)
     if not cw.any():
         return []
