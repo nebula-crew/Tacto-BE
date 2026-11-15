@@ -1,5 +1,7 @@
 # TactileCheck BE
 
+![Tacto 프로젝트 소개](docs/intro.png)
+
 스마트폰 사진 **한 장**으로 횡단보도 주변 점자블록 설치 오류를 찾아
 **설치 오류 의심 / 정상 추정 / 판정 보류**로 알려 주는 서비스의 백엔드와 판정 파이프라인.
 시민이 사진을 올리면 판정 결과와 근거 조항·개선 방향을 바로 보여 주고,
@@ -9,12 +11,13 @@
 
 | | 주소 |
 | --- | --- |
+| 웹 앱 (배포) | https://nebula-tacto.vercel.app |
 | API (배포) | https://3-107-144-61.sslip.io (`/api/health`로 상태 확인) |
 | 프론트 연동 가이드 | [docs/API.md](docs/API.md) |
 
 ## 동작 방식
 
-![파이프라인](docs/pipeline.png)
+![분석 파이프라인](docs/analysis_pipeline.png)
 
 1. **영역 분할** — YOLOv8-seg 모델 두 개를 함께 쓴다 ([pipeline/dual_segment.py](pipeline/dual_segment.py))
    - 블록 모델: 선형·점형 블록
@@ -49,17 +52,11 @@
 
 ## 배포 구조
 
-```
-브라우저 (React FE)
-   │ HTTPS
-   ▼
-AWS EC2 t3.small ── Caddy (HTTPS, Let's Encrypt) ── Docker: FastAPI + 두 모델 (CPU 추론)
-                                                      │
-                                                      ▼
-                                   Supabase: inspections 테이블 + 비공개 사진 버킷
-UptimeRobot ── 6시간마다 /api/health/deep (모델·DB 연결 확인)
-```
+![시스템 아키텍처](docs/system_architecture.png)
 
+- 프론트엔드는 Expo(React Native)로 만들어 웹으로 빌드하고 Vercel에 배포 ([FE 레포](https://github.com/woowangthon/WOOWANGTHON_TEAM_47_FE))
+- 분석 서버는 Docker 이미지 하나(FastAPI + 두 모델 + 규칙)로 AWS EC2 t3.small에서 CPU 추론, 앞단 Caddy가 HTTPS 인증서를 자동 발급
+- UptimeRobot이 6시간마다 `/api/health/deep`으로 모델·DB 연결을 확인
 - 사진은 긴 변 1600px로 줄여 **비공개** 버킷에 저장하고 API를 통해서만 내보낸다 (얼굴·차량 번호 보호)
 - Supabase secret 키·관리자 토큰은 서버 `.env`에만 둔다
 - 서버 업데이트: `cd ~/tactilecheck && git pull && bash scripts/server_update.sh`
