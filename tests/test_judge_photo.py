@@ -41,16 +41,17 @@ def test_crosswalk_scene_runs_c():
     assert "C1" in _codes(r, Verdict.NORMAL) and "C4" in _codes(r, Verdict.NORMAL)
 
 
-def test_m_skipped_not_held_when_blocks_too_small_but_c_judged():
-    """C를 판정했으면 M 관문을 못 넘어도 보류로 세지 않고 건너뛴다."""
+def test_m_held_when_blocks_too_small_but_c_judged():
+    """블록이 작으면 M은 보류하되 C 판정은 계속 수행한다."""
     from pipeline.rules.hold import HoldConfig
 
     img, label, _ = synth.render_wide_scene()
     a = analyze_label(label, PhotoKind.WIDE, img, summarize(label, PhotoKind.WIDE))
     r = judge_photo(a, label, HoldConfig(min_block_width=0.5))  # 관문을 일부러 높여 M을 못 넘게
-    assert r.scope["M"].startswith("건너뜀")
-    assert "H4" not in _codes(r)
-    assert r.overall == Verdict.NORMAL
+    assert r.scope["M"].startswith("보류")
+    assert "H4" in _codes(r, Verdict.HOLD)
+    assert "C1" in _codes(r, Verdict.NORMAL)
+    assert r.overall == Verdict.HOLD
 
 
 def test_both_families_when_crosswalk_and_big_turn():

@@ -196,7 +196,7 @@ def _check_c5(label, blocks, cw_near, cfg: ContextConfig) -> list[Finding]:
     ys, xs = np.nonzero(comp)
     return [Finding(
         code="C5", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-        message="횡단보도 앞에 점형(위험 표시)은 있지만 그곳으로 이어지는 선형 유도 블록이 없음",
+        message="횡단보도 앞 점형 블록까지 이어지는 선형 안내를 확인하지 못했어요.",
         location=Point(x=float(xs.mean()), y=float(ys.mean())),
         clause=CLAUSES["C5"], suggestion=SUGGESTIONS["C5"], confidence=0.5,
     )]
@@ -269,7 +269,7 @@ def check_c6(wide: PhotoAnalysis, label: Optional[np.ndarray], cfg: Optional[C6C
         return []
     return [Finding(
         code="C6", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-        message=f"선형 블록이 안내하는 방향이 횡단보도 건너는 방향과 약 {dev:.0f}° 다름"
+        message=f"선형 블록이 안내하는 방향과 횡단보도 진행 방향이 약 {dev:.0f}° 다른 것으로 보여요."
                 + ("" if rect.ok else " (시점 보정 없이 대략 추정)"),
         location=Point(x=float(tip[0]), y=float(tip[1])),
         clause=CLAUSES["C6"], suggestion=SUGGESTIONS["C6"], confidence=conf,
@@ -299,7 +299,7 @@ def check_direction_and_connection(
             seen.add(r.node_id)
             findings.append(Finding(
                 code="C2", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-                message="블록이 횡단보도가 아닌 차도 쪽으로 향함 (차도 직진 위험)",
+                message="선형 블록이 횡단보도 밖 차도 쪽으로 이어지는 것으로 보여요.",
                 location=Point(x=r.tip[0], y=r.tip[1]),
                 clause=CLAUSES["C2"], suggestion=SUGGESTIONS["C2"], confidence=0.7,
             ))
@@ -324,7 +324,7 @@ def check_direction_and_connection(
         elif not has_c2:  # 닿긴 하지만 옆을 스쳐 지나감
             findings.append(Finding(
                 code="C3", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-                message="블록이 횡단보도 옆을 지나갈 뿐, 횡단보도 쪽으로 들어가는 안내가 없음",
+                message="블록 안내가 횡단보도 입구로 이어지지 않고 옆을 지나가는 것으로 보여요.",
                 location=_nearest_end(wide, cw), clause=CLAUSES["C3"], suggestion=SUGGESTIONS["C3"],
                 confidence=0.55,
             ))
@@ -335,7 +335,7 @@ def check_direction_and_connection(
         r = min(toward, key=lambda r: math.dist(r.tip, r.hit_pt))
         findings.append(Finding(
             code="C1", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-            message="블록이 횡단보도 쪽을 향하지만 입구까지 이어지지 않음",
+            message="블록 안내가 횡단보도 입구에 닿기 전에 끝나는 것으로 보여요.",
             location=Point(x=r.tip[0], y=r.tip[1]),
             clause=CLAUSES["C1"], suggestion=SUGGESTIONS["C1"], confidence=0.6,
         ))
@@ -344,7 +344,7 @@ def check_direction_and_connection(
     # 연장선이 횡단보도를 비켜감 → 횡단보도에 가장 가까운 끝점에서 C3
     findings.append(Finding(
         code="C3", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-        message="옆에 횡단보도가 있는데 그쪽으로 꺾는 안내 없이 직진만 표시됨",
+        message="횡단보도 입구로 방향을 바꾸는 안내를 확인하지 못했어요.",
         location=_nearest_end(wide, cw), clause=CLAUSES["C3"], suggestion=SUGGESTIONS["C3"], confidence=0.6,
     ))
     return findings
@@ -386,7 +386,7 @@ def check_c4_from_label(wide: PhotoAnalysis, label: Optional[np.ndarray],
     ys, xs = np.nonzero(near & (label == MaskClass.LINEAR))
     return [Finding(
         code="C4", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-        message="횡단보도 진입부에 점형 블록이 없고 선형만 깔려 있음 (시점 보정 없이 블록 종류로 판단)",
+        message="횡단보도 입구에서 점형 블록을 확인하지 못했어요. 블록 종류만으로 판단한 결과예요.",
         location=Point(x=float(xs.mean()), y=float(ys.mean())),
         clause=CLAUSES["C4"], suggestion=SUGGESTIONS["C4"], confidence=0.45,
     )]
@@ -413,7 +413,7 @@ def check_c4(wide: PhotoAnalysis, cfg: Optional[C4Config] = None) -> list[Findin
         if ent.block == MaskClass.LINEAR:
             findings.append(Finding(
                 code="C4", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-                message="횡단보도 진입부에 점형 블록이 없고 선형만 깔려 있음",
+                message="횡단보도 입구에서 점형 블록을 확인하지 못했어요.",
                 location=ent.center, clause=CLAUSES["C4"], suggestion=SUGGESTIONS["C4"],
                 confidence=round(0.7 * ent.confidence, 2),
             ))
@@ -428,7 +428,7 @@ def check_c4(wide: PhotoAnalysis, cfg: Optional[C4Config] = None) -> list[Findin
         if dev > cfg.max_ridge_dev_deg:
             findings.append(Finding(
                 code="C4", verdict=Verdict.SUSPECTED, photo=PhotoKind.WIDE,
-                message=f"진입부 선형 블록 돌출선이 횡단보도 건너는 방향과 {dev:.0f}° 어긋남",
+                message=f"입구의 선형 블록 돌출선이 횡단보도 진행 방향과 약 {dev:.0f}° 다른 것으로 보여요.",
                 location=app.center, clause=CLAUSES["C4"], suggestion=SUGGESTIONS["C4"],
                 confidence=round(0.7 * app.confidence, 2),
             ))

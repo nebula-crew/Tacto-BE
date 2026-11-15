@@ -24,7 +24,7 @@ def check_m3(close: PhotoAnalysis) -> list[Finding]:
             code="M3",
             verdict=Verdict.SUSPECTED,
             photo=PhotoKind.CLOSE,
-            message=f"{'분기점' if n.type == NodeType.BRANCH else '꺾임점'}이 점형이 아님",
+            message=f"선형 블록이 {'갈라지는' if n.type == NodeType.BRANCH else '꺾이는'} 곳에서 점형 블록을 확인하지 못했어요.",
             location=n.pt,
             clause=CLAUSES["M3"],
             suggestion=SUGGESTIONS["M3"],
@@ -86,7 +86,7 @@ def check_m4(close: PhotoAnalysis, label: Optional[np.ndarray] = None) -> list[F
         hold = near_boundary or unknown
         findings.append(Finding(code="M4", verdict=Verdict.HOLD if hold else Verdict.SUSPECTED,
             photo=path.photo, location=Point(x=float(mid[0]), y=float(mid[1])),
-            message="사진 경계 또는 마스크 정보 부족으로 단절 여부 확인이 필요합니다" if hold else "선형 블록 경로의 단절이 의심됩니다",
+            message="사진 끝에 걸리거나 블록이 선명하지 않아 연결 상태를 확인하기 어려워요." if hold else "선형 블록이 이어져야 할 구간에 끊긴 부분이 있는 것으로 보여요.",
             confidence=alignment if not hold else 0.0,
             clause=None if hold else CLAUSES["M4"], suggestion=None if hold else SUGGESTIONS["M4"]))
     return findings
