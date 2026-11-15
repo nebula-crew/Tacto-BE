@@ -60,7 +60,14 @@ async def lifespan(_: FastAPI):
     # 두 모델 통합 (블록 + 장면). 둘 다 있으면 DualSegmenter, 아니면 예전 방식(모델 하나)
     block = Path(os.getenv("BLOCK_WEIGHTS", os.getenv("WEIGHTS_PATH", "weights/v9_best.pt")))
     scene = Path(os.getenv("SCENE_WEIGHTS", "weights/scene5_best.pt"))
-    if block.exists() and scene.exists():
+    if os.getenv("SEGMENTER_MODE", "scene4_v11") == "scene4_v11":
+        from pipeline.scene4_v11 import Scene4V11Segmenter
+
+        state["segmenter"] = Scene4V11Segmenter(
+            os.getenv("V11_SCENE_WEIGHTS", "weights/scene4_v1_best.pt"),
+            os.getenv("V11_TYPE_WEIGHTS", "weights/v11_best.pt"),
+        )
+    elif block.exists() and scene.exists():
         from pipeline.dual_segment import DualSegmenter
 
         state["segmenter"] = DualSegmenter(block, scene)
