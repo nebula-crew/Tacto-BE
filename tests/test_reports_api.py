@@ -122,3 +122,26 @@ def test_citizen_report_validation(client):
     assert client.post(f"/api/inspections/{rid}/report", json={"address": "   "}).status_code == 422
     assert client.post(f"/api/inspections/{rid}/report", json={"address": "x", "lat": 123}).status_code == 422
     assert client.post(f"/api/inspections/{rid}/report", json={"address": "x" * 201}).status_code == 422
+
+
+def test_large_phone_photo_is_shrunk_before_analysis(client):
+    """폰 원본(약 4000×3000)을 그대로 분석하면 서버 메모리가 모자라므로 긴 변 1600으로 줄인 뒤 분석한다."""
+    seen = {}
+
+    class _Spy:
+        available_classes = ["linear", "dot", "crosswalk", "road"]
+
+        def predict(self, image_bgr, photo):
+            seen["shape"] = image_bgr.shape[:2]
+            label = cv2.resize(client_label, (image_bgr.shape[1], image_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
+            return label, summarize(label, photo)
+
+    img, client_label, _ = synth.render_wide_scene()
+    big = cv2.resize(img, (4032, 3024))
+    ok, buf = cv2.imencode(".jpg", big)
+    main.state["segmenter"] = _Spy()
+    r = client.post("/api/inspections", files={"photo": ("big.jpg", buf.tobytes(), "image/jpeg")})
+    assert r.status_code == 200, r.text
+    assert seen["shape"] == (1200, 1600)
+    seg = r.json()["photo"]["segmentation"]
+    assert (seg["width"], seg["height"]) == (1600, 1200)  # 판정 위치 비율 계산 기준도 줄인 크기
