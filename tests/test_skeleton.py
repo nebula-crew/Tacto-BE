@@ -1,6 +1,8 @@
 """Path structure regression tests (dot-tile junctions are PASS nodes)."""
 
 import pytest
+import cv2
+import numpy as np
 
 from pipeline import synth
 from pipeline.schema import MaskClass, NodeType, PhotoKind
@@ -74,3 +76,25 @@ def test_path_json_serializable():
     label, _ = synth.t_branch()
     path = extract_path(label, PhotoKind.CLOSE)
     assert path.model_dump_json()
+
+
+def test_clipped_convex_corridor_does_not_create_y_branch():
+    label = np.zeros((360, 640), dtype=np.uint8)
+    cv2.fillPoly(label, [np.array([[205, 145], [315, 145], [325, 359], [130, 359]])], 1)
+    cv2.rectangle(label, (195, 95), (325, 144), 2, -1)
+    path = extract_path(label, PhotoKind.WIDE)
+    assert _count(path, NodeType.BRANCH) == 0
+    assert _count(path, NodeType.END) == 2
+
+
+def test_wide_short_strip_uses_opposite_dot_contacts():
+    label = np.zeros((360, 640), dtype=np.uint8)
+    label[140:220, 180:440] = 1
+    label[100:140, 100:520] = 2
+    label[220:260, 180:440] = 2
+    path = extract_path(label, PhotoKind.WIDE)
+    assert len(path.edges) == 1
+    assert len(path.nodes) == 2
+    assert all(n.block == MaskClass.DOT for n in path.nodes)
+    pts = path.edges[0].polyline
+    assert max(p.x for p in pts) - min(p.x for p in pts) < 10

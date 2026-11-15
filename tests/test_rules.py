@@ -119,15 +119,26 @@ def _wide_img(**kw):
 
 def test_c4_normal_and_overall_normal():
     r, _ = _wide_img()
-    assert [f.verdict for f in r.findings if f.code == "C4"] == [Verdict.NORMAL]
+    assert [f.verdict for f in r.findings if f.code == "C4"] == [Verdict.NORMAL, Verdict.NORMAL]
     assert r.overall == Verdict.NORMAL  # C1 정상 + C4 정상
 
 
 def test_c4_when_ridges_misaligned():
     r, _ = _wide_img(ridge_offset_deg=40)
     c4 = [f for f in r.findings if f.code == "C4"]
-    assert c4 and all(f.verdict == Verdict.SUSPECTED for f in c4)
-    assert "어긋남" in c4[0].message
+    assert any(f.verdict == Verdict.SUSPECTED and "어긋남" in f.message for f in c4)
+    assert any(f.verdict == Verdict.NORMAL and "점형" in f.message for f in c4)
+
+
+def test_c4_missing_direction_is_held_even_when_dot_is_confirmed():
+    from pipeline.rules.c_rules import check_c4
+
+    img, label, _ = synth.render_wide_scene()
+    analysis = analyze_label(label, PhotoKind.WIDE, img)
+    analysis.rois = [roi for roi in analysis.rois if roi.role != "approach"]
+    findings = check_c4(analysis)
+    assert any(f.code == "C4" and f.verdict == Verdict.NORMAL for f in findings)
+    assert any(f.code == "H2" and f.verdict == Verdict.HOLD for f in findings)
 
 
 def test_c4_small_offset_is_tolerated():

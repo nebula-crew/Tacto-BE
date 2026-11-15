@@ -35,6 +35,21 @@ def test_T_with_dot(): check('T', True, Verdict.NORMAL)
 def test_straight_no_turn(): check('straight', False, Verdict.HOLD)
 
 
+def test_two_branch_arms_at_same_image_border_are_held():
+    from pipeline.schema import MaskClass, NodeType, PathEdge, PathNode, PathStructure, Point
+    coords = [(200, 260), (200, 100), (100, 397), (300, 394)]
+    nodes = [PathNode(id=i, type=NodeType.BRANCH if i == 0 else NodeType.END,
+                      pt=Point(x=x, y=y), block=MaskClass.LINEAR, component=1)
+             for i, (x, y) in enumerate(coords)]
+    edges = [PathEdge(id=i-1, u=0, v=i, polyline=[nodes[0].pt, nodes[i].pt],
+                      length_px=170, block=MaskClass.LINEAR) for i in range(1, 4)]
+    path = PathStructure(photo=PhotoKind.CLOSE, width=400, height=400, nodes=nodes, edges=edges)
+    label = np.ones((400, 400), dtype=np.uint8)
+    candidates = find_m3_candidates(label, path)
+    assert len(candidates) == 1 and candidates[0].verdict == Verdict.HOLD
+    assert '경계' in candidates[0].reason
+
+
 def test_mismatch_rejected():
     m = make_mask('L')
     path = extract_path(m, PhotoKind.CLOSE)
