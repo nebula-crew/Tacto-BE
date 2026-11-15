@@ -57,13 +57,19 @@ state: dict = {}
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # 두 모델 통합 (블록 + 장면). 둘 다 있으면 DualSegmenter, 아니면 예전 방식(모델 하나)
-    block = Path(os.getenv("BLOCK_WEIGHTS", os.getenv("WEIGHTS_PATH", "weights/v9_best.pt")))
-    scene = Path(os.getenv("SCENE_WEIGHTS", "weights/scene5_best.pt"))
+    # 두 모델 통합. 블록 가중치가 v11(블록 종류 모델)이면 SceneTypeSegmenter, YOLO 블록 모델이면 DualSegmenter,
+    # 장면 모델이 없으면 예전 방식(모델 하나)
+    block = Path(os.getenv("BLOCK_WEIGHTS", os.getenv("WEIGHTS_PATH", "weights/v11_best.pt")))
+    scene = Path(os.getenv("SCENE_WEIGHTS", "weights/scene4_v1_best.pt"))
     if block.exists() and scene.exists():
-        from pipeline.dual_segment import DualSegmenter
+        from pipeline.scene_type_segment import SceneTypeSegmenter, is_type_checkpoint
 
-        state["segmenter"] = DualSegmenter(block, scene)
+        if is_type_checkpoint(block):  # v11: 장면 모델 tactile 영역 안을 선형·점형으로 나누는 모델
+            state["segmenter"] = SceneTypeSegmenter(block, scene)
+        else:
+            from pipeline.dual_segment import DualSegmenter
+
+            state["segmenter"] = DualSegmenter(block, scene)
     elif block.exists():
         from pipeline.segment import Segmenter
 
@@ -113,8 +119,9 @@ def _require_admin(x_admin_token: Optional[str] = Header(None)) -> None:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "schema_version": SCHEMA_VERSION, "model_loaded": "segmenter" in state,
-            "storage": storage.backend()}
+    seg = state.get("segmenter")
+    return {"ok": True, "schema_version": SCHEMA_VERSION, "model_loaded": seg is not None,
+            "segmenter": type(seg).__name__ if seg is not None else None, "storage": storage.backend()}
 
 
 @app.get("/api/health/deep")
