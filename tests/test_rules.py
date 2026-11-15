@@ -126,7 +126,7 @@ def test_c4_normal_and_overall_normal():
 def test_c4_when_ridges_misaligned():
     r, _ = _wide_img(ridge_offset_deg=40)
     c4 = [f for f in r.findings if f.code == "C4"]
-    assert any(f.verdict == Verdict.SUSPECTED and "어긋남" in f.message for f in c4)
+    assert any(f.verdict == Verdict.SUSPECTED and "진행 방향" in f.message for f in c4)
     assert any(f.verdict == Verdict.NORMAL and "점형" in f.message for f in c4)
 
 
