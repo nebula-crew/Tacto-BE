@@ -36,8 +36,10 @@ class ContextConfig:
     """길이는 모두 사진 대각선 대비 비율."""
 
     ray_len: float = 0.5  # 연장선 최대 길이
-    entrance_gap: float = 0.03  # 블록이 횡단보도에서 이만큼 안에 있으면 '입구에 닿음'
-    # 가까이 찍은 사진은 연석·보도 끝 여유(점형은 차도 경계에서 약 0.3m 안쪽에 둠)가 대각선의 3%보다 크게 찍힌다.
+    entrance_gap: float = 0.04  # 블록이 횡단보도에서 이만큼 안에 있으면 '입구에 닿음'
+    # 3%였을 때 연석 폭만큼 떨어진 정상 점형 줄(현장 사진, 대각선의 3.3%)을 C1 의심으로 봤다. 4%로 올려도
+    # 실제 사진 25장·현장 사진 8장 결과는 그대로이고 그 사진만 C1 정상으로 바뀐다 (4.5%는 C2 하나가 바뀌어 제외).
+    # 가까이 찍은 사진은 연석·보도 끝 여유(점형은 차도 경계에서 약 0.3m 안쪽에 둠)가 대각선의 4%보다 크게 찍힌다.
     # 그래서 블록 줄 폭(사진 속 블록 크기)에 비례한 거리도 허용한다. 단 대각선의 entrance_gap_max까지만.
     entrance_block_factor: float = 0.6
     entrance_gap_max: float = 0.06
@@ -355,7 +357,7 @@ class C4Config:
     max_ridge_dev_deg: float = 20.0  # 선형 돌출선과 횡단보도 진행축의 허용 각도 차
     min_conf: float = 0.5
     # 시점 보정 실패 시 라벨로 진입부 점형 확인
-    entrance_gap: float = 0.03  # 사진 대각선 대비 (ContextConfig.entrance_gap과 같음)
+    entrance_gap: float = 0.04  # 사진 대각선 대비 (ContextConfig.entrance_gap과 같음)
     entrance_block_factor: float = 0.6  # ContextConfig와 같음
     entrance_gap_max: float = 0.06
     min_entrance_px: float = 0.002  # 진입부 블록이 사진 면적의 이만큼은 있어야 판단

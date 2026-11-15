@@ -105,7 +105,7 @@ def weights() -> dict:
 
 @app.post("/api/inspect")
 async def inspect(photo: UploadFile = File(...), block: str = Form(DEFAULT_BLOCK), scene: str = Form(DEFAULT_SCENE),
-                  max_side: int = Form(1400)) -> dict:
+                  max_side: int = Form(1600)) -> dict:  # 서버 분석 크기(app.main.INFER_LONG_SIDE)와 같게
     data = np.frombuffer(await photo.read(), np.uint8)
     image = cv2.imdecode(data, cv2.IMREAD_COLOR)
     if image is None:
