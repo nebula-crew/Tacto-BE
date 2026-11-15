@@ -88,6 +88,9 @@ app.add_middleware(
 
 
 MAX_UPLOAD_MB = float(os.getenv("MAX_UPLOAD_MB", "15"))
+# 분석 전에 긴 변을 이 크기로 줄인다. 폰 원본(약 4000×3000)을 그대로 돌리면 전체 해상도 마스크 때문에
+# 메모리(t3.small 2GB)가 모자라 서버가 멈춘다. 저장 사진(storage.PHOTO_LONG_SIDE)과 같은 크기라 판정 위치도 그대로 맞는다.
+INFER_LONG_SIDE = int(os.getenv("INFER_LONG_SIDE", "1600"))
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "10"))
 _hits: dict[str, deque] = defaultdict(deque)
 
@@ -143,7 +146,17 @@ async def _read_image(f: UploadFile) -> np.ndarray:
     img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(400, f"이미지를 읽을 수 없음: {f.filename}")
-    return img
+    return _shrink(img)
+
+
+def _shrink(img: np.ndarray, long_side: Optional[int] = None) -> np.ndarray:
+    """긴 변이 long_side보다 크면 비율을 유지해 줄인다 (분석·저장 공통 크기)."""
+    long_side = long_side or INFER_LONG_SIDE
+    h, w = img.shape[:2]
+    s = long_side / max(h, w)
+    if s >= 1:
+        return img
+    return cv2.resize(img, (round(w * s), round(h * s)), interpolation=cv2.INTER_AREA)
 
 
 def _blank(v: Optional[str]) -> Optional[str]:
