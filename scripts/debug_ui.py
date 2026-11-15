@@ -6,7 +6,8 @@
     .venv/bin/python scripts/debug_ui.py            # → http://localhost:8001
     PORT=8002 .venv/bin/python scripts/debug_ui.py
 
-모델은 화면에서 weights/*.pt 중에 고른다. 기본값은 배포와 같은 Dockerfile 기본값(v9 + scene5).
+모델은 화면에서 weights/*.pt 중에 고른다. 기본값은 배포와 같은 Dockerfile 기본값(v11 + scene4_v1).
+블록 칸에서 v11 같은 블록 종류 모델을 고르면 서버와 똑같이 SceneTypeSegmenter(장면 tactile 영역 → 선형·점형)로 돌린다.
 """
 
 from __future__ import annotations
@@ -26,12 +27,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from pipeline.dual_segment import DualSegmenter  # noqa: E402
+from pipeline.scene_type_segment import SceneTypeSegmenter, is_type_checkpoint  # noqa: E402
 from pipeline.mask_refine import refine_mask  # noqa: E402
 from pipeline.run import analyze_label, run_photo  # noqa: E402
 from pipeline.schema import MaskClass, PhotoKind  # noqa: E402
 
 WEIGHTS = ROOT / "weights"
-DEFAULT_BLOCK, DEFAULT_SCENE = "v9_best.pt", "scene5_best.pt"
+DEFAULT_BLOCK, DEFAULT_SCENE = "v11_best.pt", "scene4_v1_best.pt"
 COLORS = {  # BGR
     MaskClass.LINEAR: (0, 200, 255),
     MaskClass.DOT: (0, 120, 255),
@@ -41,7 +43,7 @@ COLORS = {  # BGR
 VERDICT_COLOR = {"suspected": (40, 40, 230), "hold": (120, 120, 120), "normal": (60, 170, 60)}
 
 app = FastAPI(title="TactileCheck 로컬 디버그")
-_segmenters: dict[tuple[str, str], DualSegmenter] = {}
+_segmenters: dict = {}
 
 
 class _Recorder:
@@ -57,13 +59,13 @@ class _Recorder:
         return label, seg
 
 
-def _segmenter(block: str, scene: str) -> DualSegmenter:
+def _segmenter(block: str, scene: str):
     key = (block, scene)
     if key not in _segmenters:
         b, s = WEIGHTS / block, WEIGHTS / scene
         if not b.is_file() or not s.is_file():
             raise HTTPException(400, f"가중치 파일이 없음: {block}, {scene}")
-        _segmenters[key] = DualSegmenter(b, s)
+        _segmenters[key] = SceneTypeSegmenter(b, s) if is_type_checkpoint(b) else DualSegmenter(b, s)
     return _segmenters[key]
 
 
