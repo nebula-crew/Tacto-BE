@@ -49,7 +49,7 @@ class SkeletonConfig:
     corridor_solidity: float = 0.90  # 점형 2영역에 접하는 볼록한 넓은 선형은 중앙 경로 사용
     corridor_min_eigen_ratio: float = 1.15  # 주 진행축이 식별되는 경우만
     corridor_turn_deg: float = 70.0  # 보간된 넓은 띠에서는 가짜 꺾임 후보를 더 엄격하게
-    one_dot_corridor_eigen_ratio: float = 5.0  # 한쪽만 점형에 닿는 직선 띠에 한해 강화
+    one_dot_corridor_eigen_ratio: float = 3.0  # 볼록한 직선 띠: 길이/폭 약 sqrt(3) 이상
     one_dot_corridor_solidity: float = 0.94  # ㄱ/T자나 울퉁불퉁한 영역의 오보정 방지
     clipped_corridor_eigen_ratio: float = 1.8  # 화면에 잘린 볼록한 띠만 완화
 
@@ -182,7 +182,8 @@ def _refine_simple_corridors(
         hull_area = cv2.contourArea(cv2.convexHull(contour))
         required_solidity = (cfg.one_dot_corridor_solidity if n_touch == 1
                              else cfg.corridor_solidity)
-        if hull_area <= 0 or cv2.contourArea(contour) / hull_area < required_solidity:
+        solidity = cv2.contourArea(contour) / hull_area if hull_area > 0 else 0
+        if solidity < min(required_solidity, 0.85 if n_touch == 2 else 0.90):
             continue
         ys, xs = np.nonzero(region)
         coords = np.column_stack([xs, ys]).astype(np.float64)
@@ -203,6 +204,25 @@ def _refine_simple_corridors(
         border[:, 0] = region[:, 0]
         border[:, -1] = region[:, -1]
         contact_axis = False
+        if n_touch == 1 and solidity >= 0.90:
+            # For short rectangular strips use the actual contact face to
+            # establish the axis; PCA can point across a short wide strip.
+            vector = origin - contact_centers[0]
+            norm = np.linalg.norm(vector)
+            if norm > 10:
+                candidate_axis = vector / norm
+                projection = (coords - origin) @ candidate_axis
+                span = float(np.ptp(projection))
+                cp = float((contact_centers[0] - origin) @ candidate_axis)
+                if span > 20 and cp < np.quantile(projection, .18):
+                    far = coords[projection >= np.quantile(projection, .95)].mean(axis=0)
+                    direct = np.zeros_like(out)
+                    cv2.line(direct, tuple(np.rint(contact_centers[0]).astype(int)), tuple(np.rint(far).astype(int)), 1, 1)
+                    if np.any(direct) and np.all(region[direct != 0] != 0):
+                        out[region != 0] = 0
+                        out[direct != 0] = 1
+                        refined_components.add(li)
+                        continue
         if n_touch == 2:
             a, b = contact_centers
             va, vb = a - origin, b - origin
@@ -212,6 +232,15 @@ def _refine_simple_corridors(
             if denom > 0 and np.dot(va, vb) / denom < -0.7 and np.linalg.norm(b - a) > 35:
                 axis = (b - a) / np.linalg.norm(b - a)
                 contact_axis = True
+                direct = np.zeros_like(out)
+                cv2.line(direct, tuple(np.rint(a).astype(int)), tuple(np.rint(b).astype(int)), 1, 1)
+                if np.all(region[direct != 0] != 0):
+                    out[region != 0] = 0
+                    out[direct != 0] = 1
+                    refined_components.add(li)
+                    continue
+        if solidity < required_solidity and not contact_axis:
+            continue
         if clipped and n_touch == 1:
             by, bx = np.nonzero(border)
             ty, tx = np.nonzero(touching)
