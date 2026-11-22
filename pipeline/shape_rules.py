@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
+import cv2
 
 from .schema import Finding, MaskClass, NodeType, PathNode, PathStructure, PhotoKind, Point, Verdict
 
@@ -129,7 +130,39 @@ def _dot_distance(label: np.ndarray, pt: Point, radius: float) -> float | None:
     yy, xx = np.where(label[y0:y1, x0:x1] == MaskClass.DOT)
     if not len(xx):
         return None
-    return float(np.hypot(xx+x0-x, yy+y0-y).min())
+    distance = float(np.hypot(xx+x0-x, yy+y0-y).min())
+    return distance if distance <= radius else None
+
+
+def _mask_branch_exits(linear_components: np.ndarray, pt: Point, local_radius: float) -> int | None:
+    """Count substantial mask arms outside the junction, independently of its skeleton.
+
+    A rectangular strip can skeletonize into a Y near its end. A circle beyond
+    the strip's half-width intersects only one/two arms, unlike a genuine T/Y.
+    Cropped neighborhoods cannot establish the number of arms.
+    """
+    h, w = linear_components.shape
+    x, y = round(pt.x), round(pt.y)
+    if not (0 <= x < w and 0 <= y < h) or local_radius < 3:
+        return None
+    component = linear_components[y, x]
+    available_radius = min(x, y, w - 1 - x, h - 1 - y)
+    radius = min(max(12.0, 2.5 * local_radius), available_radius)
+    if not component or radius < max(12.0, 1.8 * local_radius):
+        return None
+    count = max(180, int(math.ceil(2 * math.pi * radius)))
+    angles = np.arange(count) * (2 * math.pi / count)
+    xx = np.rint(x + radius * np.cos(angles)).astype(int)
+    yy = np.rint(y + radius * np.sin(angles)).astype(int)
+    inside = linear_components[yy, xx] == component
+    if inside.all():
+        return 0  # A solid patch has no separately supported branches.
+    # Break the circular array at a background sample before counting runs.
+    inside = np.roll(inside, -int(np.flatnonzero(~inside)[0]))
+    transitions = np.diff(np.r_[False, inside, False].astype(np.int8))
+    lengths = np.flatnonzero(transitions == -1) - np.flatnonzero(transitions == 1)
+    min_arc = max(3.0, 0.5 * local_radius)
+    return int(np.count_nonzero(lengths * (2 * math.pi * radius / count) >= min_arc))
 
 
 def find_m3_candidates(
@@ -143,6 +176,10 @@ def find_m3_candidates(
     if cfg.dot_near_px < 0 or cfg.dot_ambiguous_px < cfg.dot_near_px:
         raise ValueError("dot 거리 임계값이 올바르지 않습니다")
     result: list[M3Candidate] = []
+    linear = (label == MaskClass.LINEAR).astype(np.uint8)
+    radius_map = cv2.distanceTransform(linear, cv2.DIST_L2, 5)
+    _, linear_components = cv2.connectedComponents(linear, connectivity=8)
+    _, dot_components = cv2.connectedComponents((label == MaskClass.DOT).astype(np.uint8), connectivity=8)
     for node in path.nodes:
         related = path.edges_of(node.id)
         if len(related) < 2:
@@ -185,7 +222,21 @@ def find_m3_candidates(
         dot_node = (node.block == MaskClass.DOT and
                     0 <= x < path.width and 0 <= y < path.height and
                     label[y, x] == MaskClass.DOT)
-        d = 0.0 if dot_node else _dot_distance(label, node.pt, cfg.dot_ambiguous_px)
+        # A wide block can push a medial-axis junction away from the true
+        # contact. Nearby dot evidence makes the result uncertain, not normal.
+        local_radius = float(radius_map[y, x]) if 0 <= x < path.width and 0 <= y < path.height else 0.0
+        search_radius = max(cfg.dot_ambiguous_px, min(1.5 * local_radius, 0.15 * min(path.width, path.height)))
+        d = 0.0 if dot_node else _dot_distance(label, node.pt, search_radius)
+        if d is not None and not dot_node:
+            # Proximity alone is insufficient: an unrelated dot on the other
+            # side of a background gap must not hide a missing-dot junction.
+            component = linear_components[y, x] if 0 <= x < path.width and 0 <= y < path.height else 0
+            touching = cv2.dilate((linear_components == component).astype(np.uint8),
+                                  cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17))) != 0 if component else np.zeros(label.shape, bool)
+            ids = np.unique(dot_components[touching])
+            ids = ids[ids > 0]
+            nearby_connected = np.where(np.isin(dot_components, ids), int(MaskClass.DOT), 0).astype(np.uint8)
+            d = _dot_distance(nearby_connected, node.pt, search_radius) if len(ids) else None
         # A wide linear region cut by the image border can skeletonize into
         # two arms ending on that same border. It is not reliable evidence of
         # a real branch; keep the candidate but request a wider photo.
@@ -205,14 +256,17 @@ def find_m3_candidates(
             reason = "사진 경계에서 선형 영역이 잘려 분기 여부를 확인할 수 없음"
         elif dot_node or (d is not None and d <= cfg.dot_near_px):
             verdict = Verdict.NORMAL
-            reason = f"{kind} 구조 후보 주변에 점형 블록이 확인됨"
+            reason = "블록이 꺾이거나 갈라지는 위치에서 연결된 점형 블록을 확인했어요."
+        elif kind == "branch" and (exits := _mask_branch_exits(linear_components, node.pt, local_radius)) is not None and exits < 3:
+            verdict = Verdict.HOLD
+            reason = "중심선은 갈라져 보이지만 블록 영역에서 세 방향의 경로가 확인되지 않아, 점형 누락 판정을 보류했어요."
         elif d is not None:
             verdict = Verdict.HOLD
-            reason = f"{kind} 후보 주변에 점형 블록이 있으나 접속 위치가 모호함"
+            reason = "연결된 점형 블록은 보이지만 꺾임·분기 위치와 맞닿는지 확인하기 어려워요."
         else:
             # missing dot is *suspected*, not a definitive legal violation.
             verdict = Verdict.SUSPECTED
-            reason = f"{kind} 구조 후보 주변에서 점형 블록을 확인하지 못함"
+            reason = f"선형 블록이 {'갈라지는' if kind == 'branch' else '꺾이는'} 위치에서 연결된 점형 블록을 확인하지 못했어요."
         result.append(M3Candidate(
             node_id=node.id, kind=kind, location=node.pt,
             direction_change_deg=round(change, 1), arm_lengths_px=lengths,

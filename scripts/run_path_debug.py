@@ -149,13 +149,19 @@ def main() -> None:
         if node.block == MaskClass.DOT:
             cv2.circle(dots, (round(node.pt.x), round(node.pt.y)), 11, (0, 255, 255), 2)
     save_png(out / "dot_regions.png", dots)
-    overlay, graph = draw_path(image, label, path)
+    from pipeline.dot_paths import expand_dot_paths, dot_pad_extents, draw_dot_pad_extents
+    layout = expand_dot_paths(path, label)
+    overlay, graph = draw_path(image, label, layout)
+    extents = dot_pad_extents(path,label)
+    draw_dot_pad_extents(overlay,extents)
     save_png(out / "path_overlay.png", overlay)
     save_png(out / "path_graph.png", graph)
     (out / "path_structure.json").write_text(
         json.dumps(path.model_dump(mode="json"), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    (out / "layout_structure.json").write_text(layout.model_dump_json(indent=2), encoding="utf-8")
+    (out / "dot_coverage.json").write_text(json.dumps(extents,ensure_ascii=False,indent=2),encoding="utf-8")
 
     counts = Counter(node.type.value for node in path.nodes)
     print("마스크 크기:", label.shape)

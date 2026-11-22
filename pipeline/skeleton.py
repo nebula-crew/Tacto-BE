@@ -52,6 +52,7 @@ class SkeletonConfig:
     one_dot_corridor_eigen_ratio: float = 3.0  # 볼록한 직선 띠: 길이/폭 약 sqrt(3) 이상
     one_dot_corridor_solidity: float = 0.94  # ㄱ/T자나 울퉁불퉁한 영역의 오보정 방지
     clipped_corridor_eigen_ratio: float = 1.8  # 화면에 잘린 볼록한 띠만 완화
+    dot_corner_cleanup_px: int = 5  # 점형 모서리의 가는 선형 다리만 정리 (0=끔)
 
 
 def block_mask(label: np.ndarray) -> np.ndarray:
@@ -73,6 +74,22 @@ def prepare_linear_mask(label: np.ndarray, cfg: Optional[SkeletonConfig] = None)
     """Skeletonization에 사용하는 선형 마스크. 원본 label은 변경하지 않는다."""
     cfg = cfg or SkeletonConfig()
     binary = (label == MaskClass.LINEAR).astype(np.uint8)
+    if cfg.dot_corner_cleanup_px > 1 and np.any(label == MaskClass.DOT):
+        # Segmentation may join perpendicular strips by a one-pixel diagonal
+        # around a dot tile. This creates multiple false Y nodes. Remove only
+        # opening-rejected pixels next to DOT, never fill background gaps.
+        size = cfg.dot_corner_cleanup_px | 1
+        opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN,
+                                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)))
+        near_dot = cv2.dilate((label == MaskClass.DOT).astype(np.uint8),
+                              cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17))) != 0
+        removed = (binary != 0) & (opened == 0) & near_dot
+        count, ids, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+        for component in range(1, count):
+            selected = removed & (ids == component)
+            # Substantial/narrow real paths require the original skeleton.
+            if np.count_nonzero(selected) <= 0.02 * stats[component, cv2.CC_STAT_AREA]:
+                binary[selected] = 0
     if cfg.close_px > 1:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.close_px, cfg.close_px))
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, k)
