@@ -267,8 +267,13 @@ def _run_steps(
     write_json(mask_dir / 'refine_report.json', audit)
 
     path = extract_path(refined, photo, SkeletonConfig(close_px=cfg.close_px))
-    save_png(path_dir / 'path_overlay.png', _overlay_path(image, refined, path))
+    from .dot_paths import expand_dot_paths, dot_pad_extents, draw_dot_pad_extents
+    layout = expand_dot_paths(path, refined)
+    extents = dot_pad_extents(path, refined)
+    save_png(path_dir / 'path_overlay.png', draw_dot_pad_extents(_overlay_path(image, refined, layout), extents))
     write_json(path_dir / 'path_structure.json', path.model_dump(mode='json'))
+    write_json(path_dir / 'layout_structure.json', layout.model_dump(mode='json'))
+    write_json(path_dir / 'dot_coverage.json', extents)
 
     candidates = find_m3_candidates(refined, path)
     findings: list[Finding] = analyze_m3(refined, path)
@@ -336,6 +341,8 @@ def _run_steps(
             'mask_overlay': 'masks/refined_overlay.png',
             'path_overlay': 'path/path_overlay.png',
             'path_graph': 'path/path_structure.json',
+            'layout_graph': 'path/layout_structure.json',
+            'dot_coverage': 'path/dot_coverage.json',
             'm3_overlay': 'm3/m3_overlay.png',
             'm3_findings': 'm3/m3_findings.json',
             'hold_findings': 'hold/hold_findings.json',

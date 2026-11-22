@@ -80,13 +80,16 @@ def _overlay(image: np.ndarray, label: np.ndarray, result) -> np.ndarray:
         m = label == int(cls)
         vis[m] = (0.45 * vis[m] + 0.55 * np.array(color)).astype(np.uint8)
     path = analyze_label(label, PhotoKind.WIDE).path
+    from pipeline.dot_paths import expand_dot_paths, dot_pad_extents, draw_dot_pad_extents
+    draw_dot_pad_extents(vis, dot_pad_extents(path,label))
+    path = expand_dot_paths(path, label)
     t = max(2, round(max(image.shape[:2]) / 400))
     for e in path.edges:
         pts = np.array([[p.x, p.y] for p in e.polyline], np.int32)
         if len(pts) > 1:
-            cv2.polylines(vis, [pts], False, (0, 255, 0), t)
+            cv2.polylines(vis, [pts], False, (0, 230, 255) if e.block == MaskClass.DOT else (0, 255, 0), t)
     for n in path.nodes:
-        cv2.circle(vis, (int(n.pt.x), int(n.pt.y)), 2 * t, (0, 0, 255), -1)
+        cv2.circle(vis, (int(n.pt.x), int(n.pt.y)), 2 * t, (0, 230, 255) if n.block == MaskClass.DOT else (0, 0, 255), -1)
     for i, f in enumerate(result.findings, 1):
         if f.location is None:
             continue
@@ -151,7 +154,7 @@ main{display:grid;grid-template-columns:minmax(0,2fr) minmax(320px,1fr);gap:16px
 <main><section><div class="imgs"><img id="orig"><img id="ov"></div>
 <p class="legend muted"><span><i class="sw" style="background:#ffc800"></i>선형</span><span><i class="sw" style="background:#ff7800"></i>점형</span>
 <span><i class="sw" style="background:#ff00ff"></i>횡단보도</span><span><i class="sw" style="background:#008cff"></i>차도</span>
-<span><i class="sw" style="background:#00ff00"></i>중심선</span><span><i class="sw" style="background:#ff0000"></i>노드</span><span>번호 원 = 판정 위치</span></p></section>
+<span><i class="sw" style="background:#00ff00"></i>선형 중심선</span><span><i class="sw" style="background:#ffe600"></i>점형 범위선·끝점</span><span><i class="sw" style="background:#ff0000"></i>선형 노드</span><span>번호 원 = 판정 위치</span></p></section>
 <section id="out"></section></main>
 <script>
 const $=id=>document.getElementById(id);let file=null;
