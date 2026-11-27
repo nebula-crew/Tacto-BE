@@ -44,6 +44,11 @@ ENV BLOCK_WEIGHTS=weights/${BLOCK_WEIGHTS_FILE} \
     SCENE_WEIGHTS=weights/${SCENE_WEIGHTS_FILE} \
     PORT=7860
 
+# 이 이미지를 만든 커밋 (scripts/server_update.sh가 --build-arg로 넘김). /api/health의 commit으로 보인다.
+# 맨 끝에 둬서 커밋이 바뀌어도 위의 설치 단계 캐시는 그대로 쓴다.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=${GIT_SHA}
+
 USER user
 EXPOSE 7860
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers 1"]
