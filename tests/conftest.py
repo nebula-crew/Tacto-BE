@@ -16,5 +16,6 @@ def _isolate_storage(monkeypatch):
     monkeypatch.setattr(storage, "_cached_client", None)
     monkeypatch.setattr(storage, "_memory", {})
     monkeypatch.setattr(storage, "_photos", {})
+    monkeypatch.setattr(storage, "_analysis", {})
     main._hits.clear()
     yield

@@ -42,6 +42,12 @@ def run_photo(segmenter, image_bgr: np.ndarray, inspection_id: Optional[str] = N
 
     분석은 넓은 사진 기준(시점 보정·진입부 ROI 포함)으로 한 번만 하고 M·C 계열이 같이 쓴다.
     """
+    return run_photo_detailed(segmenter, image_bgr, inspection_id)[0]
+
+
+def run_photo_detailed(segmenter, image_bgr: np.ndarray, inspection_id: Optional[str] = None,
+                       ) -> tuple[InspectionResult, np.ndarray, PhotoAnalysis]:
+    """run_photo와 같은 판정에, 그 과정에서 만든 후처리 라벨·경로 분석도 같이 돌려준다 (관리자용 분석 이미지에 씀)."""
     label, seg = segmenter.predict(image_bgr, PhotoKind.WIDE)
     label, _ = refine_mask(label)
     seg.class_area_px = summarize(label, PhotoKind.WIDE).class_area_px
@@ -55,7 +61,7 @@ def run_photo(segmenter, image_bgr: np.ndarray, inspection_id: Optional[str] = N
         if result.overall != Verdict.SUSPECTED:
             result.overall = Verdict.HOLD
     result.inspection_id = inspection_id
-    return result
+    return result, label, analysis
 
 
 def run_inspection(

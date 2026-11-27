@@ -39,6 +39,7 @@ PHOTO_CACHE_MAX = 100
 
 _memory: dict[str, dict] = {}  # id → DB 행과 같은 모양
 _photos: dict[str, bytes] = {}  # id → JPEG (Supabase 없을 때만)
+_analysis: dict[str, bytes] = {}  # id → 관리자용 분석 이미지 JPEG (사진과 같은 방식으로 캐시)
 _cached_client = None
 
 
@@ -196,6 +197,50 @@ def load_photo(rid: str) -> Optional[bytes]:
         return None
     _cache_photo(rid, jpg)
     return jpg
+
+
+def analysis_path(rid: str) -> str:
+    return f"{rid}_analysis.jpg"
+
+
+def save_analysis(rid: str, image_bgr: np.ndarray) -> None:
+    """관리자용 분석 이미지 저장 (사진과 같은 버킷, 같은 크기·화질). 실패해도 판정 응답은 막지 않는다.
+    DB에는 따로 적지 않고, 파일이 있으면 보여 주고 없으면(예전 점검·저장 실패) 404로 둔다."""
+    try:
+        jpg = encode_photo(image_bgr)
+    except Exception as e:
+        log.warning("분석 이미지 인코딩 실패 (%s): %s", rid, e)
+        return
+    client = _client()
+    if client is not None:
+        try:
+            client.storage.from_(_bucket()).upload(
+                analysis_path(rid), jpg, {"content-type": "image/jpeg", "upsert": "true"})
+        except Exception as e:
+            log.warning("분석 이미지 업로드 실패 (%s): %s", rid, e)
+    _cache(_analysis, rid, jpg)
+
+
+def load_analysis(rid: str) -> Optional[bytes]:
+    if rid in _analysis:
+        return _analysis[rid]
+    client = _client()
+    if client is None or not _get_row(rid):
+        return None
+    try:
+        jpg = client.storage.from_(_bucket()).download(analysis_path(rid))
+    except Exception:  # 예전 점검은 분석 이미지가 없다 (정상적인 404)
+        return None
+    _cache(_analysis, rid, jpg)
+    return jpg
+
+
+def _cache(store: dict[str, bytes], rid: str, jpg: bytes) -> None:
+    store[rid] = jpg
+    if _client() is None:
+        return
+    while len(store) > PHOTO_CACHE_MAX:
+        store.pop(next(iter(store)))
 
 
 def _cache_photo(rid: str, jpg: bytes) -> None:
