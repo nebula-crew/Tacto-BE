@@ -123,8 +123,14 @@ def _require_admin(x_admin_token: Optional[str] = Header(None)) -> None:
 @app.get("/api/health")
 def health() -> dict:
     seg = state.get("segmenter")
-    return {"ok": True, "schema_version": SCHEMA_VERSION, "model_loaded": seg is not None,
+    return {"ok": True, "schema_version": SCHEMA_VERSION, "commit": _commit(), "model_loaded": seg is not None,
             "segmenter": type(seg).__name__ if seg is not None else None, "storage": storage.backend()}
+
+
+def _commit() -> str:
+    """지금 돌고 있는 이미지를 만든 커밋 (짧은 SHA). Docker 빌드 때 GIT_SHA로 넣는다. 로컬 실행이면 'unknown'."""
+    sha = os.getenv("GIT_SHA", "").strip()
+    return sha[:7] if sha else "unknown"
 
 
 @app.get("/api/health/deep")
