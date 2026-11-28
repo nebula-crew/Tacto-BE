@@ -1,6 +1,7 @@
 """신고 API: 위치 입력, 사진 저장·조회, 관리자 API, 업로드 제한, 깨우기용 점검. 진짜 모델 대신 합성 장면 라벨."""
 
 import cv2
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -145,3 +146,33 @@ def test_large_phone_photo_is_shrunk_before_analysis(client):
     assert seen["shape"] == (1200, 1600)
     seg = r.json()["photo"]["segmentation"]
     assert (seg["width"], seg["height"]) == (1600, 1200)  # 판정 위치 비율 계산 기준도 줄인 크기
+
+
+def test_admin_analysis_image_is_saved_with_each_inspection(client, monkeypatch):
+    """관리자용 분석 이미지: 점검마다 사진과 같은 크기로 저장되고, 관리자 토큰으로만 받을 수 있다."""
+    monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
+    rid = _post(client).json()["inspection_id"]
+    url = f"/api/admin/inspections/{rid}/analysis"
+    assert client.get(url).status_code == 401
+    r = client.get(url, headers={"X-Admin-Token": "s3cret"})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    photo = cv2.imdecode(np.frombuffer(client.get(f"/api/inspections/{rid}/photo").content, np.uint8), cv2.IMREAD_COLOR)
+    vis = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
+    assert vis.shape == photo.shape  # 원본과 겹쳐 비교할 수 있게 같은 크기
+    assert not np.array_equal(vis, photo)  # 영역·경로가 그려져 있음
+    assert client.get("/api/admin/inspections/nope/analysis", headers={"X-Admin-Token": "s3cret"}).status_code == 404
+
+
+def test_analysis_image_failure_does_not_break_inspection(client, monkeypatch):
+    """그리기가 실패해도 시민에게는 판정 결과를 그대로 돌려주고, 분석 이미지만 없다."""
+    import pipeline.analysis_image as ai
+
+    def boom(*a, **k):
+        raise RuntimeError("draw failed")
+
+    monkeypatch.setattr(ai, "draw_analysis", boom)
+    monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
+    r = _post(client)
+    assert r.status_code == 200, r.text
+    rid = r.json()["inspection_id"]
+    assert client.get(f"/api/admin/inspections/{rid}/analysis", headers={"X-Admin-Token": "s3cret"}).status_code == 404

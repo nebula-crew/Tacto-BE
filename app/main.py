@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
@@ -19,6 +20,8 @@ import numpy as np
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+
+log = logging.getLogger(__name__)
 
 from pipeline.schema import (
     SCHEMA_VERSION,
@@ -192,11 +195,23 @@ async def create_inspection(
     if not any(v is not None for v in location.model_dump().values()):
         location = None
 
-    from pipeline.run import run_photo
+    from pipeline.run import run_photo_detailed
 
     image = await _read_image(upload)
-    result = run_photo(state["segmenter"], image, str(uuid.uuid4()))
-    return storage.save_report(result, image, location)
+    result, label, analysis = run_photo_detailed(state["segmenter"], image, str(uuid.uuid4()))
+    saved = storage.save_report(result, image, location)
+    _save_analysis_image(saved, image, label, analysis)
+    return saved
+
+
+def _save_analysis_image(result: InspectionResult, image: np.ndarray, label: np.ndarray, analysis) -> None:
+    """관리자 화면용 분석 이미지 (영역·경로·연장선·판정 위치). 그리기·저장이 실패해도 시민 응답은 그대로 보낸다."""
+    try:
+        from pipeline.analysis_image import draw_analysis
+
+        storage.save_analysis(result.inspection_id, draw_analysis(image, label, analysis, result))
+    except Exception as e:
+        log.warning("분석 이미지 생성 실패 (%s): %s", result.inspection_id, e)
 
 
 @app.get("/api/inspections/{inspection_id}", response_model=InspectionResult)
@@ -253,6 +268,17 @@ def admin_get(inspection_id: str) -> ReportDetail:
     if r is None:
         raise HTTPException(404, "점검 건을 찾을 수 없음")
     return r
+
+
+@app.get("/api/admin/inspections/{inspection_id}/analysis", responses={200: {"content": {"image/jpeg": {}}}},
+         dependencies=[Depends(_require_admin)])
+def admin_analysis(inspection_id: str) -> Response:
+    """관리자용 분석 이미지 (사진 위에 장면 영역·블록 종류·중심선·점형 범위·연장선·판정 위치를 겹친 JPEG).
+    이 기능 전에 접수된 점검은 이미지가 없어서 404."""
+    jpg = storage.load_analysis(inspection_id)
+    if jpg is None:
+        raise HTTPException(404, "분석 이미지가 없음 (이전 점검이거나 생성 실패)")
+    return Response(jpg, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.patch("/api/admin/inspections/{inspection_id}", response_model=ReportDetail,
